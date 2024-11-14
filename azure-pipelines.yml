@@ -1,0 +1,69 @@
+# Starter pipeline
+# Start with a minimal pipeline that you can customize to build and deploy your code.
+# Add steps that build, run tests, deploy, and more:
+# https://aka.ms/yaml
+
+#trigger:
+#- main
+
+#pool:
+  #vmImage: ubuntu-latest
+
+#steps:
+#- script: echo Hello, world!
+ # displayName: 'Run a one-line script'
+
+#- script: |
+ #   echo Add other tasks to build, test, and deploy your project.
+  #  echo See https://aka.ms/yaml
+  #displayName: 'Run a multi-line script'
+  
+trigger:
+  - none  # Set to none if you want to manually trigger the pipeline or use a schedule trigger
+
+schedules:
+  - cron: "0 0 * * 0"  # Runs every Sunday at midnight (UTC)
+    displayName: Weekly Cleanup
+    branches:
+      include:
+        - main
+
+pool:
+  vmImage: 'ubuntu-latest'
+
+variables:
+  GITHUB_OWNER: "Gowshi77gowshi"
+  GITHUB_REPO: "gowshi77gowshi/navi-dotnet"
+  GITHUB_TOKEN: $(GITHUB_TOKEN)  # GitHub PAT stored securely
+
+steps:
+  - script: |
+      echo "Starting cleanup of branches older than 3 months..."
+      
+      # Get current date in epoch format
+      CURRENT_DATE=$(date +%s)
+      
+      # Fetch all branches with last commit date using GitHub API
+      BRANCHES=$(curl -s -H "Authorization: token ${GITHUB_TOKEN}" \
+        "https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/branches" | jq -c '.[]')
+
+      # Loop through each branch and check last commit date
+      for branch in ${BRANCHES}; do
+        branch_name=$(echo "${branch}" | jq -r '.name')
+        last_commit_date=$(curl -s -H "Authorization: token ${GITHUB_TOKEN}" \
+          "https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/commits/${branch_name}" | jq -r '.commit.committer.date')
+        
+        # Convert last commit date to epoch format
+        last_commit_epoch=$(date -d "${last_commit_date}" +%s)
+        
+        # Calculate age of branch in seconds
+        branch_age=$(( (CURRENT_DATE - last_commit_epoch) / 86400 ))  # Convert seconds to days
+        
+        # Delete branch if older than 90 days (3 months)
+        if [ $branch_age -gt 90 ]; then
+          echo "Deleting branch ${branch_name}, last commit date: ${last_commit_date}..."
+          curl -X DELETE -H "Authorization: token ${GITHUB_TOKEN}" \
+            "https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/git/refs/heads/${branch_name}"
+        fi
+      done
+    displayName: "Delete Old Branches"
